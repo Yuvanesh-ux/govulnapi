@@ -25,10 +25,19 @@ func (d *DB) AddTransaction(senderId int, coinId string, address string, qty flo
 	}
 
 	// Read address info
-	receiverByte, _ := base64.StdEncoding.DecodeString(address)
+	receiverByte, err := base64.StdEncoding.DecodeString(address)
+	if err != nil {
+		return errors.New("Invalid address encoding!")
+	}
 	receiver := strings.Split(string(receiverByte), "-")
+	if len(receiver) < 3 {
+		return errors.New("Invalid address format!")
+	}
 	receiverCoinId := receiver[0]
-	receiverId, _ := strconv.Atoi(receiver[2])
+	receiverId, err := strconv.Atoi(receiver[2])
+	if err != nil {
+		return errors.New("Invalid receiver ID in address!")
+	}
 
 	if coinId != receiverCoinId {
 		return errors.New("Address not compatible with selected coin!")
@@ -50,36 +59,30 @@ func (d *DB) AddTransaction(senderId int, coinId string, address string, qty flo
 		return errors.New("Not enough coin!")
 	}
 
-	// CWE-89:  SQL Injection
-	qBalanceReceiver := fmt.Sprintf(
-		"UPDATE 'coin_balance' SET qty=qty+%v WHERE address='%s'",
-		qty, address,
-	)
-	qBalanceSender := fmt.Sprintf(
-		"UPDATE 'coin_balance' SET qty=qty-%v WHERE address='%s'",
-		qty, senderBalance.Address,
-	)
-	qTransaction := fmt.Sprintf(
-		"INSERT INTO 'transaction' (sender_id,receiver_id,coin_id,address,qty,date,note) VALUES (%d, %d,'%v','%s',%v,'%v','%v')",
-		user.Id, receiverId, coinId, address, qty, time.Now(), note,
-	)
-
+	// CWE-89:  SQL Injection - FIXED: Use parameterized queries and standard identifier quoting
 	tx, err := d.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	r, _ := tx.Exec(qBalanceReceiver)
+	qBalanceReceiver := "UPDATE coin_balance SET qty=qty+? WHERE address=?"
+	r, err := tx.Exec(qBalanceReceiver, qty, address)
+	if err != nil {
+		return err
+	}
 	rows, _ := r.RowsAffected()
 	if rows == 0 {
 		return errors.New("Receiver address doesn't exist!")
 	}
 
-	if _, err = tx.Exec(qBalanceSender); err != nil {
+	qBalanceSender := "UPDATE coin_balance SET qty=qty-? WHERE address=?"
+	if _, err = tx.Exec(qBalanceSender, qty, senderBalance.Address); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(qTransaction); err != nil {
+
+	qTransaction := "INSERT INTO transaction (sender_id,receiver_id,coin_id,address,qty,date,note) VALUES (?, ?, ?, ?, ?, ?, ?)"
+	if _, err = tx.Exec(qTransaction, user.Id, receiverId, coinId, address, qty, time.Now(), note); err != nil {
 		return err
 	}
 
