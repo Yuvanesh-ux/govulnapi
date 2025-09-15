@@ -26,12 +26,9 @@ func (d *DB) AddOrder(userId int, coinId string, price float64, isBuy bool, qty 
 		}
 	}
 
-	// CWE-20: Improper Input Validation
-	// An adversary can create infinite orders with 0 qty, which could lead
-	// to constant disk writes and filling of storage
-	// if qty <= 0 {
-	// 	return errors.New("Quantity needs to be > 0!")
-	// }
+	if qty <= 0 {
+		return errors.New("Quantity needs to be > 0!")
+	}
 
 	if isBuy {
 		if user.UsdBalance < orderValue {
@@ -47,19 +44,9 @@ func (d *DB) AddOrder(userId int, coinId string, price float64, isBuy bool, qty 
 		newCoinBalance = currentCoinBalance.Qty - qty
 	}
 
-	// CWE-89:  SQL Injection
-	qAddOrder := fmt.Sprintf(
-		"INSERT INTO 'order' (user_id, coin_id, price, is_buy, qty, date) VALUES ('%v','%v','%v','%v','%v','%v')",
-		user.Id, coinId, price, isBuy, qty, time.Now(),
-	)
-	qUpdateFiat := fmt.Sprintf(
-		"UPDATE 'user' SET usd_balance = %v WHERE id = %d",
-		newUsdBalance, user.Id,
-	)
-	qUpdateCoinBalance := fmt.Sprintf(
-		"UPDATE 'coin_balance' SET qty = %v WHERE user_id = %d AND coin_id = '%s'",
-		newCoinBalance, user.Id, coinId,
-	)
+	qAddOrder := "INSERT INTO 'order' (user_id, coin_id, price, is_buy, qty, date) VALUES (?, ?, ?, ?, ?, ?)"
+	qUpdateFiat := "UPDATE 'user' SET usd_balance = ? WHERE id = ?"
+	qUpdateCoinBalance := "UPDATE 'coin_balance' SET qty = ? WHERE user_id = ? AND coin_id = ?"
 
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -67,13 +54,13 @@ func (d *DB) AddOrder(userId int, coinId string, price float64, isBuy bool, qty 
 	}
 	defer tx.Rollback()
 
-	if _, err = tx.Exec(qAddOrder); err != nil {
+	if _, err = tx.Exec(qAddOrder, user.Id, coinId, price, isBuy, qty, time.Now()); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(qUpdateFiat); err != nil {
+	if _, err = tx.Exec(qUpdateFiat, newUsdBalance, user.Id); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(qUpdateCoinBalance); err != nil {
+	if _, err = tx.Exec(qUpdateCoinBalance, newCoinBalance, user.Id, coinId); err != nil {
 		return err
 	}
 
