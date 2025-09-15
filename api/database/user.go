@@ -103,12 +103,12 @@ func (d *DB) AddUser(email string, password string) error {
 		addressData := fmt.Sprintf("%v-%v-%v", coin.Id, email, user_id)
 		address := base64.StdEncoding.EncodeToString([]byte(addressData))
 
-		// CWE-89:  SQL Injection
-		query = fmt.Sprintf(
-			"INSERT INTO 'coin_balance' (user_id, coin_id, address, qty) VALUES (%d,'%v','%v',%v)",
-			user_id, coin.Id, address, 0.0,
-		)
-		d.db.Exec(query)
+		// FIX: Use parameterized query to prevent SQL injection
+		query = "INSERT INTO 'coin_balance' (user_id, coin_id, address, qty) VALUES (?, ?, ?, ?)"
+		_, err := d.db.Exec(query, user_id, coin.Id, address, 0.0)
+		if err != nil {
+			return err
+		}
 	}
 
 	// CWE-532: Insertion of Sensitive Information into Log File
