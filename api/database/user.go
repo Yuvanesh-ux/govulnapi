@@ -9,24 +9,24 @@ import (
 	m "govulnapi/models"
 )
 
-func (d *DB) getUser(queryUser string) (m.User, error) {
+func (d *DB) getUser(queryUser string, args ...interface{}) (m.User, error) {
 	// This function is inefficient as it fetches all user data
 	// (even when not called for), but made this way for simplicity
 
 	// Get user
 	var user m.User
-	if err := d.db.Get(&user, queryUser); err != nil {
+	if err := d.db.Get(&user, queryUser, args...); err != nil {
 		return m.User{}, err
 	}
 
-	// CWE-89:  SQL Injection
-	qBalances := fmt.Sprintf("SELECT coin_id, address, qty FROM 'coin_balance' WHERE user_id = %d", user.Id)
-	qOrders := fmt.Sprintf("SELECT coin_id, price, is_buy, qty, date FROM 'order' WHERE user_id = %d", user.Id)
-	qTransactions := fmt.Sprintf("SELECT * FROM 'transaction' WHERE sender_id = %d OR receiver_id = %d", user.Id, user.Id)
+	// CWE-89:  SQL Injection FIXED: Use parameterized queries for all queries
+	qBalances := "SELECT coin_id, address, qty FROM 'coin_balance' WHERE user_id = ?"
+	qOrders := "SELECT coin_id, price, is_buy, qty, date FROM 'order' WHERE user_id = ?"
+	qTransactions := "SELECT * FROM 'transaction' WHERE sender_id = ? OR receiver_id = ?"
 
-	d.db.Select(&user.CoinBalances, qBalances)     // Get user balances
-	d.db.Select(&user.Orders, qOrders)             // Get user orders
-	d.db.Select(&user.Transactions, qTransactions) // Get user transactions
+	d.db.Select(&user.CoinBalances, qBalances, user.Id)     // Get user balances
+	d.db.Select(&user.Orders, qOrders, user.Id)             // Get user orders
+	d.db.Select(&user.Transactions, qTransactions, user.Id, user.Id) // Get user transactions
 
 	return user, nil
 }
@@ -34,10 +34,10 @@ func (d *DB) getUser(queryUser string) (m.User, error) {
 func (d *DB) GetUserByCredentials(email string, password string) (m.User, error) {
 	password = md5sum(password)
 
-	// CWE-89:  SQL Injection
-	query := fmt.Sprintf("SELECT * FROM 'user' WHERE user.email = '%s' and user.password = '%s'", email, password)
+	// CWE-89:  SQL Injection FIXED: Use parameterized query
+	query := "SELECT * FROM 'user' WHERE user.email = ? and user.password = ?"
 
-	user, err := d.getUser(query)
+	user, err := d.getUser(query, email, password)
 	if err != nil {
 		return m.User{}, errors.New("No user with matching credentials found!")
 	}
@@ -46,10 +46,10 @@ func (d *DB) GetUserByCredentials(email string, password string) (m.User, error)
 }
 
 func (d *DB) GetUserByEmail(email string) (m.User, error) {
-	// CWE-89:  SQL Injection
-	query := fmt.Sprintf("SELECT * FROM 'user' WHERE user.email = '%s'", email)
+	// CWE-89:  SQL Injection FIXED: Use parameterized query
+	query := "SELECT * FROM 'user' WHERE user.email = ?"
 
-	user, err := d.getUser(query)
+	user, err := d.getUser(query, email)
 	if err != nil {
 		return m.User{}, errors.New("No user with matching email found!")
 	}
@@ -58,10 +58,10 @@ func (d *DB) GetUserByEmail(email string) (m.User, error) {
 }
 
 func (d *DB) GetUserById(userId int) (m.User, error) {
-	// CWE-89:  SQL Injection
-	query := fmt.Sprintf("SELECT * FROM 'user' WHERE user.id = %d", userId)
+	// CWE-89:  SQL Injection FIXED: Use parameterized query
+	query := "SELECT * FROM 'user' WHERE user.id = ?"
 
-	user, err := d.getUser(query)
+	user, err := d.getUser(query, userId)
 	if err != nil {
 		return m.User{}, errors.New("No user with matching id found!")
 	}
@@ -85,9 +85,9 @@ func (d *DB) AddUser(email string, password string) error {
 
 	hashedPassword := md5sum(password)
 
-	// CWE-89:  SQL Injection
-	query := fmt.Sprintf("INSERT INTO 'user' (email, password) VALUES ('%s', '%s')", email, hashedPassword)
-	r, err := d.db.Exec(query)
+	// CWE-89:  SQL Injection FIXED: Use parameterized query
+	query := "INSERT INTO 'user' (email, password) VALUES (?, ?)"
+	r, err := d.db.Exec(query, email, hashedPassword)
 	if err != nil {
 		return err
 	}
@@ -103,12 +103,9 @@ func (d *DB) AddUser(email string, password string) error {
 		addressData := fmt.Sprintf("%v-%v-%v", coin.Id, email, user_id)
 		address := base64.StdEncoding.EncodeToString([]byte(addressData))
 
-		// CWE-89:  SQL Injection
-		query = fmt.Sprintf(
-			"INSERT INTO 'coin_balance' (user_id, coin_id, address, qty) VALUES (%d,'%v','%v',%v)",
-			user_id, coin.Id, address, 0.0,
-		)
-		d.db.Exec(query)
+		// CWE-89:  SQL Injection FIXED: Use parameterized query
+		query = "INSERT INTO 'coin_balance' (user_id, coin_id, address, qty) VALUES (?, ?, ?, ?)"
+		d.db.Exec(query, user_id, coin.Id, address, 0.0)
 	}
 
 	// CWE-532: Insertion of Sensitive Information into Log File
@@ -122,10 +119,10 @@ func (d *DB) UpdateEmail(userId int, newEmail string) error {
 	// 	return err
 	// }
 
-	// CWE-89:  SQL Injection
-	query := fmt.Sprintf("UPDATE 'user' SET email=%s WHERE id=%d", newEmail, userId)
+	// CWE-89:  SQL Injection FIXED: Use parameterized query
+	query := "UPDATE 'user' SET email=? WHERE id=?"
 
-	_, err := d.db.Exec(query)
+	_, err := d.db.Exec(query, newEmail, userId)
 	if err != nil {
 		return err
 	}
@@ -138,10 +135,10 @@ func (d *DB) UpdateEmail(userId int, newEmail string) error {
 func (d *DB) UpdatePassword(userId int, newPassword string) error {
 	newPassword = md5sum(newPassword)
 
-	// CWE-89:  SQL Injection
-	query := fmt.Sprintf("UPDATE 'user' SET password='%s' WHERE id=%d", newPassword, userId)
+	// CWE-89:  SQL Injection FIXED: Use parameterized query
+	query := "UPDATE 'user' SET password=? WHERE id=?"
 
-	_, err := d.db.Exec(query)
+	_, err := d.db.Exec(query, newPassword, userId)
 	if err != nil {
 		return err
 	}
