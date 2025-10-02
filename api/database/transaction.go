@@ -3,7 +3,6 @@ package database
 import (
 	"encoding/base64"
 	"errors"
-	"fmt"
 	m "govulnapi/models"
 	"strconv"
 	"strings"
@@ -50,19 +49,10 @@ func (d *DB) AddTransaction(senderId int, coinId string, address string, qty flo
 		return errors.New("Not enough coin!")
 	}
 
-	// CWE-89:  SQL Injection
-	qBalanceReceiver := fmt.Sprintf(
-		"UPDATE 'coin_balance' SET qty=qty+%v WHERE address='%s'",
-		qty, address,
-	)
-	qBalanceSender := fmt.Sprintf(
-		"UPDATE 'coin_balance' SET qty=qty-%v WHERE address='%s'",
-		qty, senderBalance.Address,
-	)
-	qTransaction := fmt.Sprintf(
-		"INSERT INTO 'transaction' (sender_id,receiver_id,coin_id,address,qty,date,note) VALUES (%d, %d,'%v','%s',%v,'%v','%v')",
-		user.Id, receiverId, coinId, address, qty, time.Now(), note,
-	)
+	// CWE-89:  SQL Injection FIXED: Use parameterized queries
+	qBalanceReceiver := "UPDATE 'coin_balance' SET qty=qty+? WHERE address=?"
+	qBalanceSender := "UPDATE 'coin_balance' SET qty=qty-? WHERE address=?"
+	qTransaction := "INSERT INTO 'transaction' (sender_id,receiver_id,coin_id,address,qty,date,note) VALUES (?, ?, ?, ?, ?, ?, ?)"
 
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -70,16 +60,19 @@ func (d *DB) AddTransaction(senderId int, coinId string, address string, qty flo
 	}
 	defer tx.Rollback()
 
-	r, _ := tx.Exec(qBalanceReceiver)
+	r, err := tx.Exec(qBalanceReceiver, qty, address)
+	if err != nil {
+		return err
+	}
 	rows, _ := r.RowsAffected()
 	if rows == 0 {
 		return errors.New("Receiver address doesn't exist!")
 	}
 
-	if _, err = tx.Exec(qBalanceSender); err != nil {
+	if _, err = tx.Exec(qBalanceSender, qty, senderBalance.Address); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(qTransaction); err != nil {
+	if _, err = tx.Exec(qTransaction, user.Id, receiverId, coinId, address, qty, time.Now(), note); err != nil {
 		return err
 	}
 
