@@ -118,20 +118,19 @@ func (d *DB) AddUser(email string, password string) error {
 }
 
 func (d *DB) UpdateEmail(userId int, newEmail string) error {
-	// if err := validateEmail(newEmail); err != nil {
-	// 	return err
-	// }
+	if err := validateEmail(newEmail); err != nil {
+		return err
+	}
 
 	// CWE-89:  SQL Injection
-	query := fmt.Sprintf("UPDATE 'user' SET email=%s WHERE id=%d", newEmail, userId)
-
-	_, err := d.db.Exec(query)
+	query := "UPDATE 'user' SET email=? WHERE id=?"
+	_, err := d.db.Exec(query, newEmail, userId)
 	if err != nil {
 		return err
 	}
 
 	// CWE-223: Omission of Security-relevant Information
-	log.Println("Updated email for user")
+	log.Printf("Updated email for user %d to %s", userId, newEmail)
 	return nil
 }
 
